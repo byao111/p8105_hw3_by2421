@@ -1,0 +1,114 @@
+---
+title: "Homework 3"
+author: "Bowen Yao"
+output: github_document
+---
+```{r setup, message=FALSE}
+library(tidyverse)
+library(janitor)
+library(p8105.datasets)
+library(patchwork)
+
+knitr::opts_chunk$set(fig.width = 10, fig.height = 5)
+theme_set(theme_minimal(base_size = 12))
+```
+
+## Problem 1
+
+```{r}
+data("ny_noaa")
+
+weather = ny_noaa |>
+  mutate(
+    year = year(date),
+    month = month(date),
+    day = day(date),
+    tmax = as.numeric(tmax) / 10,
+    tmin = as.numeric(tmin) / 10,
+    prcp = prcp / 10
+  )
+
+weather |>
+  summarise(across(prcp:tmin, ~ mean(is.na(.x)) * 100)) |>
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing (%)") |>
+  knitr::kable(digits = 2)
+```
+
+The original dataset contains `r nrow(ny_noaa)` rows and
+`r ncol(ny_noaa)` columns, with daily observations from
+`r n_distinct(ny_noaa$id)` New York weather stations during 1981–2010.
+Each row represents a station and date. Variables include station ID,
+date, precipitation, snowfall, snow depth, and max/min
+temperature. I created separate year, month, and day variables, converted
+temperatures to degrees Celsius and precipitation to millimeters, and
+kept snowfall and snow depth in millimeters. Missings number is significant:
+about 44% of temperature values are missing, compared with about 6% of
+precipitation values. The available observations therefore differ across
+variables, stations, and dates.
+
+```{r}
+weather |>
+  filter(!is.na(snow)) |>
+  count(snow, sort = TRUE) |>
+  slice_head(n = 10) |>
+  knitr::kable(col.names = c("Snowfall (mm)", "Observations"))
+```
+
+Zero is the most common snowfall value, with 2,008,508 observations.
+The next most common values are 25, 13, and 51 mm. Zero is common because
+most station-days have no snowfall. The frequent positive values are
+approximately one inch, half an inch, and two inches, suggesting that
+rounding and conversion from measurements in inches contribute to the
+observed pattern.
+
+```{r}
+monthly_temperature = weather |>
+  filter(month %in% c(1, 7)) |>
+  group_by(id, year, month) |>
+  summarise(mean_tmax = mean(tmax, na.rm = TRUE), .groups = "drop") |>
+  filter(!is.na(mean_tmax)) |>
+  mutate(month = factor(month, levels = c(1, 7), labels = c("January", "July")))
+
+ggplot(monthly_temperature, aes(x = year, y = mean_tmax, group = id)) +
+  geom_line(alpha = 0.2) +
+  facet_wrap(~ month) +
+  labs(
+    title = "Average daily maximum temperature by station",
+    x = "Year", y = "Average maximum temperature (°C)"
+  )
+```
+
+July is consistently warmer than January. Stations often rise and fall together across years, suggesting shared annual weather patterns, while differences between stations may reflect location and elevation. January shows greater year-to-year variability. There is an unusually low July average temperature around 1988, approximately 14°C. Such unusual averages merit checking the underlying observations and the number of available days.
+
+```{r, fig.width=13}
+temperature_plot = weather |>
+  filter(!is.na(tmin), !is.na(tmax)) |>
+  ggplot(aes(x = tmin, y = tmax)) +
+  geom_bin_2d(bins = 60) +
+  scale_fill_viridis_c(trans = "log10") +
+  labs(
+    title = "Daily minimum and maximum temperatures",
+    x = "Minimum temperature (°C)", y = "Maximum temperature (°C)",
+    fill = "Days"
+  )
+
+snowfall_plot = weather |>
+  filter(snow > 0, snow < 100) |>
+  ggplot(aes(x = factor(year), y = snow)) +
+  geom_boxplot(outlier.size = 0.4) +
+  labs(
+    title = "Snowfall between 0 and 100 mm",
+    x = "Year", y = "Snowfall (mm)"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+temperature_plot + snowfall_plot
+```
+Minimum and maximum temperatures have a strong positive association.
+Most observations form a diagonal band, with few extreme values away
+from the main concentration. The snowfall distributions are broadly
+similar across years, with larger snowfall amounts forming the upper tail.
+There is no obvious steady increase or decrease in the typical amount
+within this restricted range. These distributions exclude zero snowfall
+and amounts of 100 mm or more, so they do not describe annual snowfall
+totals or how often snow occurs.
