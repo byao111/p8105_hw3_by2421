@@ -194,8 +194,7 @@ Total activity generally declines with age, although there is significant
 variation between participants. The decline is more pronounced in the
 less than high school group. Differences between men and women vary by age
 and education, so neither sex has consistently higher activity across
-all groups. The smooth curves are less reliable near the age extremes,
-where fewer observations are available.
+all groups. 
 
 ```{r}
 activity_by_minute = nhanes |>
@@ -223,3 +222,98 @@ than showing one consistent gap throughout the day. These are group
 averages and do not represent every participant's individual pattern.
 Women with more than a high school education tend to have higher daytime
 activity than men in that category.
+
+
+
+## Problem 3
+
+```{r}
+citibike = bind_rows(
+  read_csv("data/citibike/Jan 2020 Citi.csv", show_col_types = FALSE) |>
+    mutate(year = 2020, month = "January"),
+  read_csv("data/citibike/July 2020 Citi.csv", show_col_types = FALSE) |>
+    mutate(year = 2020, month = "July"),
+  read_csv("data/citibike/Jan 2024 Citi.csv", show_col_types = FALSE) |>
+    mutate(year = 2024, month = "January"),
+  read_csv("data/citibike/July 2024 Citi.csv", show_col_types = FALSE) |>
+    mutate(year = 2024, month = "July")
+) |>
+  mutate(
+    year = factor(year),
+    month = factor(month, levels = c("January", "July")),
+    weekdays = factor(
+      weekdays,
+      levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    ),
+    member_casual = factor(member_casual, levels = c("casual", "member")),
+    rideable_type = factor(
+      rideable_type, levels = c("classic_bike", "electric_bike"),
+      labels = c("Classic", "Electric")
+    )
+  )
+```
+
+The combined dataset contains `r nrow(citibike)` rides and
+`r ncol(citibike)` variables. Each row is one sampled ride, with ride ID,
+bike type, weekday, duration in minutes, starting and ending station,
+membership status, year, and month. I added year and month from the file
+names, combined the four files, and encoded categorical variables with
+meaningful ordering. The files contain a 1% sample of rides lasting less
+than four hours in January and July of 2020 and 2024. 
+
+```{r}
+citibike |>
+  count(year, month, member_casual) |>
+  pivot_wider(names_from = member_casual, values_from = n) |>
+  knitr::kable(col.names = c("Year", "Month", "Casual rides", "Member rides"))
+```
+
+Members account for more rides than casual riders in every year-month
+combination. Both groups have more rides in July than January and more
+rides in 2024 than in the corresponding month of 2020. July 2024 has the
+largest number of sampled rides. 
+
+```{r}
+citibike |>
+  filter(year == "2024", month == "July", !is.na(start_station_name)) |>
+  count(start_station_name, sort = TRUE) |>
+  slice_head(n = 5) |>
+  knitr::kable(col.names = c("Starting station", "Rides"))
+```
+
+```{r}
+median_duration = citibike |>
+  group_by(year, month, weekdays) |>
+  summarise(median_duration = median(duration), .groups = "drop")
+
+ggplot(median_duration, aes(x = weekdays, y = median_duration, color = month, group = month)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ year) +
+  labs(
+    title = "Median ride duration by weekday, month, and year",
+    x = "Day of week", y = "Median duration (minutes)", color = "Month"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Median rides are longer in July than in January and shorter in 2024 than
+in 2020 for the same month and weekday. Weekend rides tend to be longer,
+especially in July. January 2024 shows a weaker weekend pattern, with
+Sunday having a relatively short median duration. July 2020 has the
+longest medians, reaching about 16.5 minutes on the weekend.
+
+```{r}
+citibike |>
+  filter(year == "2024") |>
+  ggplot(aes(x = duration, fill = rideable_type)) +
+  geom_density(alpha = 0.4) +
+  scale_x_log10(breaks = c(1, 5, 10, 30, 60, 120, 240)) +
+  facet_grid(month ~ member_casual) +
+  labs(
+    title = "Ride duration distributions in 2024",
+    x = "Ride duration (minutes, log scale)", y = "Density", fill = "Bike type"
+  )
+```
+
+Casual riders generally have longer ride durations than members, and the distributions tend to shift toward longer rides in July. Among casual riders, classic bike rides tend to last longer than electric bike rides. Among members, the two bike types have similar distributions in January, while electric bike rides tend to last longer in July. The log axis allows both short and long rides to be displayed. These patterns describe associations rather than causal effects.
