@@ -112,3 +112,114 @@ There is no obvious steady increase or decrease in the typical amount
 within this restricted range. These distributions exclude zero snowfall
 and amounts of 100 mm or more, so they do not describe annual snowfall
 totals or how often snow occurs.
+
+
+## Problem 2
+
+```{r}
+demographics = read_csv(
+  "data/nhanes_covar.csv", skip = 4, show_col_types = FALSE
+) |>
+  clean_names() |>
+  drop_na() |>
+  filter(age >= 21) |>
+  mutate(
+    sex = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
+    education = factor(
+      education, levels = c(1, 2, 3),
+      labels = c("Less than high school", "High school equivalent", "More than high school")
+    )
+  )
+
+accelerometer = read_csv("data/nhanes_accel.csv", show_col_types = FALSE) |>
+  clean_names() |>
+  pivot_longer(
+    cols = starts_with("min"),
+    names_to = "minute", names_prefix = "min",
+    names_transform = list(minute = as.integer), values_to = "mims"
+  )
+
+nhanes = inner_join(demographics, accelerometer, by = "seqn")
+```
+
+I skipped the four introductory rows in the demographic file, standardized
+column names, excluded participants younger than 21 or with missing
+demographic information, and labeled sex and education as factors.
+I reshaped the activity measurements into minute and MIMS columns and
+joined the datasets by participant ID. All original demographic variables
+and minute-level activity measurements are kept for eligible participants.
+The final dataset contains `r n_distinct(nhanes$seqn)` participants and
+`r nrow(nhanes)` rows, with 1,440 minute-level observations per participant.
+
+```{r}
+participants = nhanes |>
+  distinct(seqn, sex, age, bmi, education)
+
+participants |>
+  count(education, sex) |>
+  pivot_wider(names_from = sex, values_from = n) |>
+  knitr::kable(col.names = c("Education", "Men", "Women"))
+
+ggplot(participants, aes(x = sex, y = age, fill = sex)) +
+  geom_boxplot() +
+  facet_wrap(~ education) +
+  labs(title = "Age distributions by sex and education", x = "Sex", y = "Age (years)") +
+  guides(fill = "none")
+```
+
+The more than high school category is the largest, with 56 men and 59
+women. The less than high school category has similar numbers of men and
+women (27 and 28), while the high school equivalent category has more men
+than women (35 versus 23). Participants with more than a high school
+education tend to be younger. In the high school equivalent category,
+women have a higher median age than men, while median ages are more similar
+between sexes in the other two categories.
+
+```{r}
+total_activity = nhanes |>
+  group_by(seqn, sex, age, bmi, education) |>
+  summarise(total_activity = sum(mims), .groups = "drop")
+
+ggplot(total_activity, aes(x = age, y = total_activity, color = sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = FALSE) +
+  facet_wrap(~ education) +
+  labs(
+    title = "Total daily activity by age, sex, and education",
+    x = "Age (years)", y = "Total daily activity (MIMS)", color = "Sex"
+  )
+```
+
+Total activity generally declines with age, although there is significant
+variation between participants. The decline is more pronounced in the
+less than high school group. Differences between men and women vary by age
+and education, so neither sex has consistently higher activity across
+all groups. The smooth curves are less reliable near the age extremes,
+where fewer observations are available.
+
+```{r}
+activity_by_minute = nhanes |>
+  group_by(education, sex, minute) |>
+  summarise(mean_mims = mean(mims), .groups = "drop") |>
+  mutate(hour = (minute - 1) / 60)
+
+ggplot(activity_by_minute, aes(x = hour, y = mean_mims, color = sex)) +
+  geom_line(alpha = 0.3) +
+  geom_smooth(method = "loess", span = 0.2, se = FALSE) +
+  facet_wrap(~ education) +
+  scale_x_continuous(breaks = c(0, 6, 12, 18, 24), limits = c(0, 24)) +
+  labs(
+    title = "Average activity over 24 hours",
+    x = "Hour of day", y = "Mean activity (MIMS per minute)", color = "Sex"
+  ) +
+  theme(legend.position = "bottom")
+```
+
+In all education categories, activity is lowest overnight, increases in
+the morning, remains elevated during the daytime, and declines in the
+evening. Men and women have broadly similar daily timing. Differences in
+activity level depend on the time of day and education category rather
+than showing one consistent gap throughout the day. These are group
+averages and do not represent every participant's individual pattern.
+Women with more than a high school education tend to have higher daytime
+activity than men in that category.
